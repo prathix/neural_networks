@@ -15,8 +15,8 @@ data_dir = tf.keras.utils.get_file(origin=dataset_url,
 data_dir = pathlib.Path(data_dir)
 
 batch_size = 32
-img_height = 128
-img_width = 128
+img_height = 64
+img_width = 64
 
 train_ds = tf.keras.utils.image_dataset_from_directory(                             #serve ad esplicitare i dati per l'allenamento e per il testing
     data_dir,
