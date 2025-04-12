@@ -14,13 +14,14 @@ data_dir = tf.keras.utils.get_file(origin=dataset_url,
                                    untar=True)
 data_dir = pathlib.Path(data_dir)
 
+
 batch_size = 32
 img_height = 64
 img_width = 64
 
 train_ds = tf.keras.utils.image_dataset_from_directory(                             #serve ad esplicitare i dati per l'allenamento e per il testing
     data_dir,
-    validation_split = 0.2,
+    validation_split = 0.8,
     subset = "training",
     seed = 123,
     image_size = (img_height, img_width),
@@ -58,7 +59,7 @@ val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 num_classes = 6
 
 model = tf.keras.Sequential([
-  tf.keras.layers.Rescaling(1./255, input_shape=(128, 128, 3)),
+  tf.keras.layers.Rescaling(1./255, input_shape=(64, 64, 3)),
   tf.keras.layers.Conv2D(16, 3, activation='relu'),  # meno filtri
   tf.keras.layers.MaxPooling2D(),
   tf.keras.layers.Conv2D(16, 3, activation='relu'),
