@@ -6,16 +6,17 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import pathlib
 import matplotlib.pyplot as plt
+import kagglehub
 
-dataset_url = "https://storage.googleapis.com/download.tensorflow.org/example_images/flower_photos.tgz"
+dataset_url = kagglehub.dataset_download("asdasdasasdas/garbage-classification")
 data_dir = tf.keras.utils.get_file(origin=dataset_url,
                                    fname='flower_photos',
                                    untar=True)
 data_dir = pathlib.Path(data_dir)
 
 batch_size = 32
-img_height = 180
-img_width = 180
+img_height = 128
+img_width = 128
 
 train_ds = tf.keras.utils.image_dataset_from_directory(                             #serve ad esplicitare i dati per l'allenamento e per il testing
     data_dir,
@@ -54,23 +55,24 @@ AUTOTUNE = tf.data.AUTOTUNE                                      # serve a memor
 train_ds = train_ds.cache().prefetch(buffer_size=AUTOTUNE)
 val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
-num_classes = 5
+num_classes = 6
 
 model = tf.keras.Sequential([
-  tf.keras.layers.Rescaling(1./255),
-  tf.keras.layers.Conv2D(32, 3, activation='relu'),
+  tf.keras.layers.Rescaling(1./255, input_shape=(128, 128, 3)),
+  tf.keras.layers.Conv2D(16, 3, activation='relu'),  # meno filtri
   tf.keras.layers.MaxPooling2D(),
-  tf.keras.layers.Conv2D(32, 3, activation='relu'),
+  tf.keras.layers.Conv2D(16, 3, activation='relu'),
   tf.keras.layers.MaxPooling2D(),
   tf.keras.layers.Flatten(),
-  tf.keras.layers.Dropout(0.8),
-  tf.keras.layers.Dense(128, activation='relu'),
-  tf.keras.layers.Dense(num_classes)
+  tf.keras.layers.Dropout(0.5),
+  tf.keras.layers.Dense(32, activation='relu'),
+  tf.keras.layers.Dense(num_classes, activation='softmax')  # aggiungi softmax finale
 ])
+
 
 model.compile(
   optimizer='adam',
-  loss=tf.losses.SparseCategoricalCrossentropy(from_logits=True),
+  loss=tf.losses.SparseCategoricalCrossentropy(from_logits=False),
   metrics=['accuracy'])
 
 model.fit(
@@ -79,4 +81,24 @@ model.fit(
   epochs=3
 )
 
-model.save('models/image_recognition.keras')
+def representative_dataset_gen():
+    for images, _ in train_ds.take(100):  # 100 batch da 32 immagini = fino a 3200 immagini
+        for img in images:
+            img = tf.image.resize(img, (img_height, img_width))
+            img = tf.cast(img, tf.float32) / 255.0  # normalizzazione manuale
+            img = tf.expand_dims(img, axis=0)  # aggiungi batch dimensione
+            yield [img]
+
+
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+converter.optimizations = [tf.lite.Optimize.DEFAULT]
+converter.representative_dataset = representative_dataset_gen
+converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+converter.inference_input_type = tf.uint8
+converter.inference_output_type = tf.uint8
+
+tflite_model = converter.convert()
+
+with open("models/model.tflite", "wb") as f:
+    f.write(tflite_model)
+print(f"Model size: {len(tflite_model) / 1024:.2f} KB")
