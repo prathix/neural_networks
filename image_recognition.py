@@ -3,7 +3,6 @@ import os
 import PIL
 import PIL.Image
 import tensorflow as tf
-import tensorflow_datasets as tfds
 from tensorflow.keras.applications import MobileNetV2
 import pathlib
 import matplotlib.pyplot as plt
@@ -70,9 +69,11 @@ model = tf.keras.Sequential([
   tf.keras.layers.Rescaling(1./255, input_shape=(64, 64, 3)),
   tf.keras.layers.Conv2D(16, 3, activation='sigmoid'),  # meno filtri
   tf.keras.layers.MaxPooling2D(),
+  tf.keras.layers.Conv2D(24, 3, activation='sigmoid'),
+  tf.keras.layers.MaxPooling2D(),
   tf.keras.layers.Conv2D(32, 3, activation='sigmoid'),
   tf.keras.layers.MaxPooling2D(),
-  tf.keras.layers.Conv2D(64, 3, activation='sigmoid'),
+  tf.keras.layers.Conv2D(48, 3, activation='sigmoid'),
   tf.keras.layers.MaxPooling2D(),
   tf.keras.layers.Flatten(),
   tf.keras.layers.Dropout(0.5),
@@ -89,7 +90,7 @@ model.compile(
 model.fit(
   train_ds,
   validation_data=val_ds,
-  epochs=3
+  epochs=20
 )
 
 def representative_dataset_gen():
