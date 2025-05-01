@@ -1,115 +1,67 @@
-import numpy as np
-import os
-import PIL
-import PIL.Image
 import tensorflow as tf
-import tensorflow_datasets as tfds
-from tensorflow.keras.applications import MobileNetV2
-import pathlib
-import matplotlib.pyplot as plt
-import kagglehub
+from sklearn.utils.class_weight import compute_class_weight
+import numpy as np
 
-dataset_url = kagglehub.dataset_download("asdasdasasdas/garbage-classification")
-data_dir = pathlib.Path(dataset_url)
+# Path to the dataset (adjust if needed)
+data_dir = "garbage-classification/Garbage-classification/Garbage-classification"
 
-
-batch_size = 128
-img_height = 64
-img_width = 64
-
-train_ds = tf.keras.utils.image_dataset_from_directory(                             #serve ad esplicitare i dati per l'allenamento e per il testing
+# Load datasets
+train_ds = tf.keras.preprocessing.image_dataset_from_directory(
     data_dir,
-    validation_split = 0.2,
-    subset = "training",
-    seed = 123,
-    image_size = (img_height, img_width),
-    batch_size = batch_size
+    validation_split=0.2,
+    subset='training',
+    seed=123,
+    image_size=(224, 224),
+    batch_size=32,
+    class_names = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
 )
 
-val_ds = tf.keras.utils.image_dataset_from_directory(
-  data_dir,
-  validation_split=0.2,
-  subset="validation",
-  seed=123,
-  image_size=(img_height, img_width),
-  batch_size=batch_size)
+val_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    data_dir,
+    validation_split=0.2,
+    subset='validation',
+    seed=123,
+    image_size=(224, 224),
+    batch_size=32
+)
 
-class_names = train_ds.class_names
-
-print("Train batches:", len(train_ds))
-print("Val batches:", len(val_ds))
-
-""" plt.figure(figsize=(10, 10))                                                       #serve a fare il grafico delle prime dieci immagini
-for images, labels in train_ds.take(1):
-  for i in range(9):
-    ax = plt.subplot(3, 3, i + 1)
-    plt.imshow(images[i].numpy().astype("uint8"))
-    plt.title(class_names[labels[i]])
-    plt.axis("off")
-plt.show() """
-
-normalization_layer = tf.keras.layers.Rescaling(1./255)                               #serve a 'normalizzare', e quindi a fare diventare le immagini leggibili
-normalized_ds = train_ds.map(lambda x, y: (normalization_layer(x), y))
-image_batch, labels_batch = next(iter(normalized_ds))
-first_image = image_batch[0]
-
-AUTOTUNE = tf.data.AUTOTUNE                                      # serve a memorizzare i dati in cache, facendo in modo che il database dopo la prima epoca si salvi
-train_ds = train_ds.cache().prefetch(buffer_size=AUTOTUNE)
+# Prefetch for performance
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
 val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
+# Get number of classes from dataset
 num_classes = 6
 
-data_augmentation = tf.keras.Sequential([
-    tf.keras.layers.RandomFlip("horizontal"),
-    tf.keras.layers.RandomRotation(0.1),
-    tf.keras.layers.RandomZoom(0.1),
-])
-
-model = tf.keras.Sequential([
-  data_augmentation,
-  tf.keras.layers.Rescaling(1./255, input_shape=(64, 64, 3)),
-  tf.keras.layers.Conv2D(16, 3, activation='sigmoid'),  # meno filtri
-  tf.keras.layers.MaxPooling2D(),
-  tf.keras.layers.Conv2D(32, 3, activation='sigmoid'),
-  tf.keras.layers.MaxPooling2D(),
-  tf.keras.layers.Conv2D(64, 3, activation='sigmoid'),
-  tf.keras.layers.MaxPooling2D(),
-  tf.keras.layers.Flatten(),
-  tf.keras.layers.Dropout(0.5),
-  tf.keras.layers.Dense(32, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)),
-  tf.keras.layers.Dense(num_classes, activation='softmax')  # aggiungi softmax finale
-])
-
-
-model.compile(
-  optimizer='adam',
-  loss=tf.losses.SparseCategoricalCrossentropy(from_logits=False),
-  metrics=['accuracy'])
-
-model.fit(
-  train_ds,
-  validation_data=val_ds,
-  epochs=3
+# Load pre-trained MobileNetV2 without the top classifier layers
+base_model = tf.keras.applications.MobileNetV2(
+    input_shape=(224, 224, 3),
+    include_top=False,
+    weights='imagenet'
 )
+base_model.trainable = False  # Freeze base for feature extraction
 
-def representative_dataset_gen():
-    for images, _ in train_ds.take(100):  # 100 batch da 32 immagini = fino a 3200 immagini
-        for img in images:
-            img = tf.image.resize(img, (img_height, img_width))
-            img = tf.cast(img, tf.float32) / 255.0  # normalizzazione manuale
-            img = tf.expand_dims(img, axis=0)  # aggiungi batch dimensione
-            yield [img]
+# Build model using Functional API
+inputs = tf.keras.Input(shape=(224, 224, 3))
+x = tf.keras.applications.mobilenet_v2.preprocess_input(inputs)
+x = base_model(x, training=False)
+x = tf.keras.layers.GlobalAveragePooling2D()(x)
+x = tf.keras.layers.Dense(128, activation='relu')(x)
+x = tf.keras.layers.Dropout(0.5)(x)
+outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
 
+model = tf.keras.Model(inputs, outputs)
 
-converter = tf.lite.TFLiteConverter.from_keras_model(model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-converter.representative_dataset = representative_dataset_gen
-converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-converter.inference_input_type = tf.uint8
-converter.inference_output_type = tf.uint8
+labels = [label for _, label in train_ds]  # Extract labels from training set
+labels = np.concatenate([y.numpy() for y in labels])
+weights = compute_class_weight(class_weight='balanced', classes=np.unique(labels), y=labels)
+class_weights = dict(enumerate(weights))
 
-tflite_model = converter.convert()
+# Compile model
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
 
-with open("models/model.tflite", "wb") as f:
-    f.write(tflite_model)
-print(f"Model size: {len(tflite_model) / 1024:.2f} KB")
+# Train the top layer
+model.fit(train_ds, validation_data=val_ds, class_weight=class_weights, epochs=10)
+model.save('models/garbage_classification_model.keras')
