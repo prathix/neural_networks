@@ -63,5 +63,5 @@ model.compile(optimizer='adam',
               metrics=['accuracy'])
 
 # Train the top layer
-model.fit(train_ds, validation_data=val_ds, class_weight=class_weights, epochs=10)
+model.fit(train_ds, validation_data=val_ds, class_weight=class_weights, epochs=15)
 model.save('models/garbage_classification_model.keras')
